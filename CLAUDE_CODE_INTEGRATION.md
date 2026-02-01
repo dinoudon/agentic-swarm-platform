@@ -195,7 +195,7 @@ if backend == "interactive":
 | Feature | Anthropic API | Claude Code | Interactive |
 |---------|--------------|-------------|-------------|
 | **API Key** | Required ✗ | Not Required ✓ | Not Required ✓ |
-| **Cost** | ~$2-3/PRD | Free | Free |
+| **Cost** | ~$0.50-0.75/PRD (Sonnet) | Free | Free |
 | **Speed** | Fast (2-5 min) | Medium | Slow (manual) |
 | **Automation** | Full | Partial | None |
 | **Parallel Execution** | Yes | Limited | No |

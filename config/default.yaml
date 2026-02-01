@@ -9,7 +9,7 @@ backend:
   type: "interactive"  # Default to interactive mode (no API key needed, ToS-compliant)
 
 anthropic:
-  default_model: "claude-opus-4-5-20251101"
+  default_model: "claude-sonnet-4-5-20250929"
   max_tokens: 4096
   temperature: 0.7
   timeout: 300.0

@@ -138,7 +138,7 @@ MONITORING__LOG_LEVEL=DEBUG
 ### Configuration Sections
 
 **Anthropic API**
-- `default_model`: Claude model to use (default: claude-opus-4-5-20251101)
+- `default_model`: Claude model to use (default: claude-sonnet-4-5-20250929)
 - `max_tokens`: Maximum tokens per response (default: 4096)
 - `temperature`: Sampling temperature (default: 0.7)
 
@@ -274,15 +274,15 @@ src/
 
 ## Cost Estimation
 
-For a typical PRD (5-10 pages):
+For a typical PRD (5-10 pages) using **Sonnet (default)**:
 - PRD parsing: ~10K tokens
 - Task execution: ~5-10K tokens per task
 - 15 tasks: ~120K tokens total
 - Summary generation: ~15K tokens
 
-**Total**: ~150K tokens ≈ $2-3 USD (with Claude Opus)
+**Total**: ~150K tokens ≈ **$0.50-0.75 USD** (with Claude Sonnet)
 
-Use Sonnet for lower costs (~$0.50-0.75 for same workload).
+Use Opus for higher quality (~$2-3 USD for same workload).
 
 ## Troubleshooting
 

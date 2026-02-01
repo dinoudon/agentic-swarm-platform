@@ -12,7 +12,7 @@ class AnthropicConfig(BaseModel):
 
     api_key: str | None = Field(default=None, description="Anthropic API key (optional with claude-code backend)")
     default_model: str = Field(
-        default="claude-opus-4-5-20251101",
+        default="claude-sonnet-4-5-20250929",
         description="Default Claude model to use",
     )
     max_tokens: int = Field(default=4096, description="Maximum tokens per response")

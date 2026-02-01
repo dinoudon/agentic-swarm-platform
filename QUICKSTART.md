@@ -94,9 +94,9 @@ my-output/
 
 ### Estimated Cost & Time
 
-For the sample PRD:
+For the sample PRD (using Sonnet by default):
 - **Tokens**: ~100-150K tokens
-- **Cost**: ~$2-3 USD with Claude Opus (or ~$0.50 with Sonnet)
+- **Cost**: ~$0.50-0.75 USD with Claude Sonnet (or ~$2-3 with Opus)
 - **Time**: 2-5 minutes depending on complexity
 
 ## Next Steps
