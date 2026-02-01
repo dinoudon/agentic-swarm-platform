@@ -1,0 +1,42 @@
+# Default configuration for Agentic Swarm Platform
+# Values can be overridden via environment variables using the pattern:
+# SECTION__KEY (e.g., ANTHROPIC__MAX_TOKENS=8192)
+
+# Backend Configuration
+# Options: "anthropic" (requires API key), "interactive" (manual, no API key)
+# Note: claude-code backend removed for ToS compliance
+backend:
+  type: "interactive"  # Default to interactive mode (no API key needed, ToS-compliant)
+
+anthropic:
+  default_model: "claude-opus-4-5-20251101"
+  max_tokens: 4096
+  temperature: 0.7
+  timeout: 300.0
+
+rate_limit:
+  max_requests_per_minute: 50
+  max_tokens_per_minute: 200000
+  max_concurrent_requests: 10
+
+orchestrator:
+  max_task_retries: 3
+  task_timeout: 600.0
+  execution_loop_delay: 0.1
+  enable_parallel_execution: true
+
+agent_pool:
+  max_agents: 5
+  min_agents: 1
+  enable_auto_scaling: false
+  agent_idle_timeout: 300.0
+  code_agent_count: 2
+  docs_agent_count: 1
+  analysis_agent_count: 1
+  test_agent_count: 1
+
+monitoring:
+  log_level: "INFO"
+  enable_cost_tracking: true
+  enable_metrics: true
+  output_directory: "./output"
