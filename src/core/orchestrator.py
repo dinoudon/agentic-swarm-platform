@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from src.agents.agent_pool import AgentPool
 from src.communication.event_bus import EventBus, EventTypes
@@ -71,6 +72,11 @@ class Orchestrator:
 
         # Results storage
         self.task_results: list[TaskResult] = []
+
+        # Task execution tracking
+        self.running_tasks: set[asyncio.Task] = set()
+        self.processing_task_ids: set[UUID] = set()
+        self.processing_agent_ids: set[UUID] = set()
 
         # Setup event handlers
         self._setup_event_handlers()
@@ -180,28 +186,44 @@ class Orchestrator:
         max_iterations = 1000  # Safety limit
 
         while not await self.task_queue.is_complete() and iteration < max_iterations:
-            iteration += 1
+            # Check if we should increment iteration (only if we did work or waited)
+            did_work = False
 
             # Get ready tasks and available agents
             ready_tasks = await self.task_queue.get_ready_tasks()
             available_agents = await self.agent_pool.get_available_agents()
+
+            # Filter out tasks/agents currently being processed (async gap protection)
+            ready_tasks = [
+                t for t in ready_tasks if t.id not in self.processing_task_ids
+            ]
+            available_agents = [
+                a
+                for a in available_agents
+                if a.agent.id not in self.processing_agent_ids
+            ]
 
             if not ready_tasks:
                 # No ready tasks, check if we're truly done or just waiting
                 stats = await self.task_queue.get_stats()
                 in_progress = stats["by_status"].get(TaskStatus.IN_PROGRESS.value, 0)
 
-                if in_progress == 0:
+                # Also check our local running tasks
+                local_running = len(self.running_tasks)
+
+                if in_progress == 0 and local_running == 0:
                     # No tasks ready and none in progress - we're stuck or done
                     break
 
                 # Tasks in progress, wait a bit
                 await asyncio.sleep(self.config.orchestrator.execution_loop_delay)
+                iteration += 1
                 continue
 
             if not available_agents:
                 # No available agents, wait for some to become free
                 await asyncio.sleep(self.config.orchestrator.execution_loop_delay)
+                iteration += 1
                 continue
 
             # Match tasks to agents
@@ -210,19 +232,31 @@ class Orchestrator:
             if not assignments:
                 # Couldn't match any tasks to agents
                 await asyncio.sleep(self.config.orchestrator.execution_loop_delay)
+                iteration += 1
                 continue
 
             # Execute tasks in parallel
             if self.config.orchestrator.enable_parallel_execution:
-                # Execute all assignments concurrently
-                task_coroutines = [
-                    self._execute_task(task, agent) for task, agent in assignments
-                ]
-                await asyncio.gather(*task_coroutines, return_exceptions=True)
+                # Execute all assignments concurrently without blocking
+                for task, agent in assignments:
+                    # Mark as processing to prevent re-assignment during async setup
+                    self.processing_task_ids.add(task.id)
+                    self.processing_agent_ids.add(agent.agent.id)
+
+                    # Create background task
+                    task_coro = self._execute_task_safe(task, agent)
+                    async_task = asyncio.create_task(task_coro)
+
+                    # Track running task
+                    self.running_tasks.add(async_task)
+                    async_task.add_done_callback(self.running_tasks.discard)
+
+                did_work = True
             else:
                 # Execute sequentially
                 for task, agent in assignments:
                     await self._execute_task(task, agent)
+                did_work = True
 
             # Progress update
             stats = await self.task_queue.get_stats()
@@ -240,12 +274,35 @@ class Orchestrator:
                 },
             )
 
-            # Small delay between iterations
+            # Only increment iteration if we did work or explicitly waited above
+            if did_work:
+                iteration += 1
+
+            # Small delay between iterations to yield control
             await asyncio.sleep(self.config.orchestrator.execution_loop_delay)
+
+        # Wait for any remaining tasks to complete
+        if self.running_tasks:
+            logger.info("Waiting for remaining tasks to complete", count=len(self.running_tasks))
+            await asyncio.gather(*self.running_tasks, return_exceptions=True)
 
         # Final stats
         final_stats = await self.task_queue.get_stats()
         logger.info("Execution loop completed", iterations=iteration, **final_stats)
+
+    async def _execute_task_safe(self, task: Any, agent: Any) -> None:
+        """Execute a task with cleanup of processing state.
+
+        Args:
+            task: Task to execute
+            agent: Agent to execute on
+        """
+        try:
+            await self._execute_task(task, agent)
+        finally:
+            # Cleanup processing state
+            self.processing_task_ids.discard(task.id)
+            self.processing_agent_ids.discard(agent.agent.id)
 
     async def _match_tasks_to_agents(
         self, ready_tasks: list[Any], available_agents: list[Any]
