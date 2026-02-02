@@ -177,7 +177,10 @@ class Orchestrator:
             raise RuntimeError("Task queue not initialized")
 
         iteration = 0
-        max_iterations = 1000  # Safety limit
+        max_iterations = 100000  # Safety limit (increased for continuous scheduling)
+
+        # Track running tasks
+        pending_futures = set()
 
         while not await self.task_queue.is_complete() and iteration < max_iterations:
             iteration += 1
@@ -186,8 +189,8 @@ class Orchestrator:
             ready_tasks = await self.task_queue.get_ready_tasks()
             available_agents = await self.agent_pool.get_available_agents()
 
-            if not ready_tasks:
-                # No ready tasks, check if we're truly done or just waiting
+            if not ready_tasks and not pending_futures:
+                # No ready tasks and nothing running - check if we're done or stuck
                 stats = await self.task_queue.get_stats()
                 in_progress = stats["by_status"].get(TaskStatus.IN_PROGRESS.value, 0)
 
@@ -195,34 +198,58 @@ class Orchestrator:
                     # No tasks ready and none in progress - we're stuck or done
                     break
 
-                # Tasks in progress, wait a bit
-                await asyncio.sleep(self.config.orchestrator.execution_loop_delay)
-                continue
-
-            if not available_agents:
-                # No available agents, wait for some to become free
+                # Should not happen if logic is correct, but safe fallback
                 await asyncio.sleep(self.config.orchestrator.execution_loop_delay)
                 continue
 
             # Match tasks to agents
-            assignments = await self._match_tasks_to_agents(ready_tasks, available_agents)
+            assignments = []
+            if ready_tasks and available_agents:
+                assignments = await self._match_tasks_to_agents(ready_tasks, available_agents)
 
-            if not assignments:
-                # Couldn't match any tasks to agents
-                await asyncio.sleep(self.config.orchestrator.execution_loop_delay)
-                continue
-
-            # Execute tasks in parallel
-            if self.config.orchestrator.enable_parallel_execution:
-                # Execute all assignments concurrently
-                task_coroutines = [
-                    self._execute_task(task, agent) for task, agent in assignments
-                ]
-                await asyncio.gather(*task_coroutines, return_exceptions=True)
-            else:
-                # Execute sequentially
+            # Execute newly assigned tasks
+            if assignments:
                 for task, agent in assignments:
-                    await self._execute_task(task, agent)
+                    # Mark task as started immediately to prevent re-scheduling
+                    await self.task_queue.mark_task_started(task.id, agent.agent.id)
+
+                    # Publish started event
+                    await self.event_bus.publish(
+                        EventTypes.TASK_STARTED,
+                        {
+                            "task_id": str(task.id),
+                            "task_title": task.title,
+                            "agent_id": str(agent.agent.id),
+                        },
+                    )
+
+                    if self.config.orchestrator.enable_parallel_execution:
+                        # Schedule execution
+                        future = asyncio.create_task(self._execute_task(task, agent))
+                        pending_futures.add(future)
+                    else:
+                        # Execute sequentially
+                        await self._execute_task(task, agent)
+
+            # Handle execution flow
+            if self.config.orchestrator.enable_parallel_execution and pending_futures:
+                # Wait for at least one task to complete to free up an agent
+                done, pending_futures = await asyncio.wait(
+                    pending_futures,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                # Check for exceptions in completed tasks
+                for future in done:
+                    try:
+                        await future
+                    except Exception as e:
+                        logger.error("Unhandled exception in task future", error=str(e))
+
+            elif not assignments:
+                # No assignments and (no pending futures OR sequential mode)
+                # Just wait a bit
+                await asyncio.sleep(self.config.orchestrator.execution_loop_delay)
 
             # Progress update
             stats = await self.task_queue.get_stats()
@@ -239,9 +266,6 @@ class Orchestrator:
                     "iteration": iteration,
                 },
             )
-
-            # Small delay between iterations
-            await asyncio.sleep(self.config.orchestrator.execution_loop_delay)
 
         # Final stats
         final_stats = await self.task_queue.get_stats()
@@ -286,18 +310,7 @@ class Orchestrator:
             agent: Agent to execute on
         """
         try:
-            # Mark task as started
-            await self.task_queue.mark_task_started(task.id, agent.agent.id)
-
-            # Publish task started event
-            await self.event_bus.publish(
-                EventTypes.TASK_STARTED,
-                {
-                    "task_id": str(task.id),
-                    "task_title": task.title,
-                    "agent_id": str(agent.agent.id),
-                },
-            )
+            # Note: Task is already marked as started by the caller
 
             # Execute task
             result = await self.agent_pool.execute_task_on_agent(task, agent)
