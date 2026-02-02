@@ -2,11 +2,13 @@
 
 import asyncio
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
+import aiofiles
 from anthropic.types import Usage
 
 from src.utils.logger import get_logger
@@ -111,16 +113,17 @@ class ClaudeCodeBackend:
         """
         try:
             # Create a temporary file with the prompt
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
-                prompt_file = f.name
+            fd, prompt_file = tempfile.mkstemp(suffix='.md', text=True)
+            os.close(fd)
 
-                # Write the full prompt
-                f.write(f"# System Instructions\n\n{system}\n\n")
-                f.write("# Task\n\n")
+            # Write the full prompt
+            async with aiofiles.open(prompt_file, mode='w', encoding='utf-8') as f:
+                await f.write(f"# System Instructions\n\n{system}\n\n")
+                await f.write("# Task\n\n")
                 for msg in messages:
                     if msg["role"] == "user":
-                        f.write(msg["content"])
-                        f.write("\n\n")
+                        await f.write(msg["content"])
+                        await f.write("\n\n")
 
             # Execute Claude Code CLI
             result = await asyncio.create_subprocess_exec(
@@ -185,8 +188,8 @@ class ClaudeCodeBackend:
         response_file = request_dir / f"{task_id}_response.md"
 
         # Write request
-        with open(request_file, 'w', encoding='utf-8') as f:
-            f.write(full_prompt)
+        async with aiofiles.open(request_file, 'w', encoding='utf-8') as f:
+            await f.write(full_prompt)
 
         # Create instruction file for user
         instruction = f"""
@@ -226,8 +229,9 @@ Waiting for response file to be created...
         while total_waited < max_wait:
             if response_file.exists():
                 # Read response
-                with open(response_file, 'r', encoding='utf-8') as f:
-                    response = f.read().strip()
+                async with aiofiles.open(response_file, 'r', encoding='utf-8') as f:
+                    content = await f.read()
+                    response = content.strip()
 
                 if response:
                     # Clean up
