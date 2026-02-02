@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+import aiofiles
 from anthropic.types import Usage
 
 from src.utils.logger import get_logger
@@ -91,8 +92,8 @@ class InteractiveBackend:
 """
 
         # Save task file
-        with open(task_file, 'w', encoding='utf-8') as f:
-            f.write(task_content)
+        async with aiofiles.open(task_file, 'w', encoding='utf-8') as f:
+            await f.write(task_content)
 
         # Display to console
         print("\n" + "="*70)
@@ -153,8 +154,9 @@ class InteractiveBackend:
         while elapsed < timeout:
             if file_path.exists():
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read().strip()
+                    async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                        content = await f.read()
+                    content = content.strip()
 
                     if content:  # File exists and has content
                         return content
