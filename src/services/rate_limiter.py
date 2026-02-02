@@ -47,42 +47,49 @@ class RateLimiter:
         Raises:
             RateLimitExceededError: If rate limits would be exceeded
         """
-        async with self.lock:
-            # Refill request tokens
-            await self._refill_request_tokens()
-
-            # Refill token bucket
-            await self._refill_token_tokens()
-
-            # Check if we have enough tokens
-            if self.request_tokens < 1:
-                wait_time = 60.0 - (time.time() - self.last_request_refill)
-                logger.warning(
-                    "Request rate limit reached, waiting",
-                    wait_time=f"{wait_time:.2f}s",
-                )
-                await asyncio.sleep(wait_time)
+        while True:
+            async with self.lock:
+                # Refill request tokens
                 await self._refill_request_tokens()
 
-            if self.token_tokens < estimated_tokens:
-                wait_time = 60.0 - (time.time() - self.last_token_refill)
-                logger.warning(
-                    "Token rate limit reached, waiting",
-                    wait_time=f"{wait_time:.2f}s",
-                    estimated_tokens=estimated_tokens,
-                )
-                await asyncio.sleep(wait_time)
+                # Refill token bucket
                 await self._refill_token_tokens()
 
-            # Consume tokens
-            self.request_tokens -= 1
-            self.token_tokens -= estimated_tokens
+                # Check if we have enough tokens
+                wait_time = 0.0
 
-            logger.debug(
-                "Rate limit tokens acquired",
-                request_tokens_remaining=f"{self.request_tokens:.1f}",
-                token_tokens_remaining=f"{self.token_tokens:.0f}",
-            )
+                if self.request_tokens < 1:
+                    wait_time = max(wait_time, 60.0 - (time.time() - self.last_request_refill))
+                    logger.warning(
+                        "Request rate limit reached, waiting",
+                        wait_time=f"{wait_time:.2f}s",
+                    )
+
+                if self.token_tokens < estimated_tokens:
+                    token_wait = 60.0 - (time.time() - self.last_token_refill)
+                    if token_wait > wait_time:
+                        wait_time = token_wait
+                        logger.warning(
+                            "Token rate limit reached, waiting",
+                            wait_time=f"{wait_time:.2f}s",
+                            estimated_tokens=estimated_tokens,
+                        )
+
+                if wait_time <= 0:
+                    # Consume tokens
+                    self.request_tokens -= 1
+                    self.token_tokens -= estimated_tokens
+
+                    logger.debug(
+                        "Rate limit tokens acquired",
+                        request_tokens_remaining=f"{self.request_tokens:.1f}",
+                        token_tokens_remaining=f"{self.token_tokens:.0f}",
+                    )
+                    break
+
+            # Wait outside the lock
+            if wait_time > 0:
+                await asyncio.sleep(wait_time)
 
         # Acquire semaphore for concurrent request limiting
         await self.semaphore.acquire()
