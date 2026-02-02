@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import aiofiles
 from anthropic.types import Usage
 
 from src.utils.logger import get_logger
@@ -84,8 +85,8 @@ Your response should be complete and ready to use.
 """
 
         # Write task file
-        with open(task_file, 'w', encoding='utf-8') as f:
-            f.write(task_content)
+        async with aiofiles.open(task_file, 'w', encoding='utf-8') as f:
+            await f.write(task_content)
 
         # Display instructions to user
         print("\n" + "="*60)
@@ -137,8 +138,8 @@ Your response should be complete and ready to use.
         while total_waited < timeout:
             if response_file.exists():
                 try:
-                    with open(response_file, 'r', encoding='utf-8') as f:
-                        content = f.read().strip()
+                    async with aiofiles.open(response_file, 'r', encoding='utf-8') as f:
+                        content = (await f.read()).strip()
 
                     if content:
                         logger.info("Response received", file=str(response_file))
